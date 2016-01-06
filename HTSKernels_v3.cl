@@ -1,7 +1,7 @@
 #define _OCL_CODE_
 #include "HTSShared.hpp"
 
-# pragma OPENCL EXTENSION cl_amd_printf:enable // enable printf on AMD GPU's
+#pragma OPENCL EXTENSION cl_amd_printf:enable // enable printf on AMD GPU's
 
 /************************* uiAlloc *****************************/
 /* Function name	: uiAlloc
@@ -21,11 +21,10 @@ int uiAlloc( TLLNode *pNodePool, /* Hash-table + stack of free nodes */
 
     while( bFoundNode != true ) { /* iterate untill NodeFound */
 
-		uiLLMNode = pNodePool[uiHeadIndex].uiNext ; /* Always top node is free : stack */
+		uiLLMNode = pNodePool[uiHeadIndex].uiNext ; /* Always top node is free in stack */
 		uiLLNode = GET_PTR(uiLLMNode) ;/* Get actual index of next node in pool */
             
-		// what if, NodePool becomes empty ??
-		if(uiLLNode >= OCL_NODE_POOL_SIZE) return NULL ;
+		if(uiLLNode >= OCL_NODE_POOL_SIZE) return NULL ; // BC
 
 		 uint uiLLMNextNode = pNodePool[uiLLNode].uiNext ; /* Get next node index */
 		 uint uiLLNextNode = GET_PTR(uiLLMNextNode) ;
@@ -41,7 +40,7 @@ int uiAlloc( TLLNode *pNodePool, /* Hash-table + stack of free nodes */
             } // end-of-if
      } // end-of-while	
     // clear the data, if any
-    for(int i = 0; i < OCL_WG_SIZE; i++)
+    for(int i = 0; i < OCL_WG_SIZE; i++) 
 		pNodePool[uiLLNode].pE[i] = 0 ;
 	pNodePool[uiLLNode].uiNext = 0 ;
 	return uiLLNode ; 
@@ -333,7 +332,7 @@ uint work_group_index(TLLNode *pNodePool,uint uiLLNode, uint key) {
      __local int keyIndex ; // cannot initialize local variable, getting error in compilation
      uint lid = get_local_id(0);
      if(lid == 0) keyIndex = 0 ; 
-     work_group_barrier(CLK_GLOBAL_MEM_FENCE|CLK_LOCAL_MEM_FENCE);
+     work_group_barrier(CLK_LOCAL_MEM_FENCE);
      uint uiVal = pNodePool[uiLLNode].pE[lid] ;
      if(uiVal==key) { // thread conflicts does not occur because no duplication of keys
         keyIndex = (int)lid+1 ;
@@ -510,7 +509,7 @@ uint bFind( TLLNode* pNodePool,		/* Hash-table + stack of free nodes */
 		status = WINDOW(pNodePool, Key, pRef, nRef, Index) ;
 		// window not found !!!
 		if(status == HTS_WINDOW_NOT_FOUND) {
-			// TODO : check
+			// TODO : check on priority
 			uiLLMNextNode = pNodePool[nRef].uiNext ;
 			uiLLNextNode = GET_PTR(uiLLMNextNode) ;
 			if(!uiLLNextNode) {// if next node doesnot exist, wht is d use of CLEAN
@@ -584,11 +583,10 @@ bool bAdd( TLLNode*  pNodePool,		/* Hash-table + stack of free nodes */
 		// Let other work-items in a work-group know next-node-index !!!
         uiLLNode = work_group_broadcast(uiLLNode, 0) ;
 
-		// clone the node by inserting key and return new node index
-        cloneNodeIndex = CLONE(pNodePool, uiHeadIndex, nextNodeIndex, uiKey) ;
-		if(cloneNodeIndex == NULL) return false ; // Boundary conditions
-
         if( uiLLNode != (int)NULL) { // if next-node exists ?? 
+			// clone the node by inserting key and return new node index
+		    cloneNodeIndex = CLONE(pNodePool, uiHeadIndex, nextNodeIndex, uiKey) ;
+			if(cloneNodeIndex == NULL) return false ; // Boundary conditions
 			// Delete node which was there before inserting key and free it
             if(lid == 0) {
                 status = REPLACE(pNodePool, uiHeadIndex, uiLLNode, cloneNodeIndex) ;
@@ -601,6 +599,9 @@ bool bAdd( TLLNode*  pNodePool,		/* Hash-table + stack of free nodes */
             if(status == HTS_REPLACE_SUCCESS) return true ; // SUCCESSFULLY INSERTED KEY 
         }//end-of if(uiLLNode != (int)NULL)
 		else {
+			// clone the node by inserting key and return new node index
+		    cloneNodeIndex = CLONE(pNodePool, uiHeadIndex, nextNodeIndex, uiKey) ;
+			if(cloneNodeIndex == NULL) return false ; // Boundary conditions
 			uiLLMNode = pNodePool[nextNodeIndex].uiNext ;
 			uiLLNode = GET_PTR(uiLLMNode) ;
 			pBits = GET_BITS(uiLLMNode) ;
@@ -658,11 +659,11 @@ bool bRemove( TLLNode*  pNodePool,    /* Hash-table + stack of free nodes */
 		// Let other work-items in a work-group know next-node-index !!!
         uiLLNode = work_group_broadcast(uiLLNode, 0) ;
 
-		// clone the node by deleting key and return new node
-        cloneNodeIndex = CLONE(pNodePool,uiHeadIndex,nextNodeIndex,uiKey) ;
-		if(cloneNodeIndex == NULL) return false ; // Boundary conditions
-
         if( uiLLNode != (int)NULL) { /* if next-node exists ?? */
+
+			// clone the node by deleting key and return new node
+		    cloneNodeIndex = CLONE(pNodePool,uiHeadIndex,nextNodeIndex,uiKey) ;
+			if(cloneNodeIndex == NULL) return false ; // Boundary conditions
 			
 			// Delete node which was there before deleting key and free it
             if(lid == 0) {
@@ -725,7 +726,7 @@ __kernel void HTSTopKernel(__global void* pvOclReqQueue,
 							&nextNodeIndex, /* key location */
 							&uiIndex);
                 if(uiIndex) bReqStatus = true ;
-				if(lid == 0) printf("uiretval%d-prevNodeIndex%d-nextNodeIndex%d",uiretVal,prevNodeIndex, nextNodeIndex) ;
+				if(lid == 0) printf("uiIndex%d-prevNodeIndex%d-nextNodeIndex%d",uiIndex,prevNodeIndex, nextNodeIndex) ;
             }
         else if(uiType == HTS_REQ_TYPE_ADD)
             {
@@ -739,7 +740,6 @@ __kernel void HTSTopKernel(__global void* pvOclReqQueue,
 								  uiKey, 
 								  uiHeadIndex) ;
             }
-
         work_group_barrier(CLK_GLOBAL_MEM_FENCE|CLK_LOCAL_MEM_FENCE);
 
         if(bReqStatus == true)
